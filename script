@@ -1,0 +1,43 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import input_file_name, regexp_extract, to_date
+
+# Initialize Spark
+spark = SparkSession.builder \
+    .appName("Daily ETL Load") \
+    .config("spark.sql.shuffle.partitions", "4") \
+    .enableHiveSupport() \
+    .getOrCreate()
+
+# Base path
+base_path = "file:///C:/Users/asus/DataLake/"
+
+cust_mstr_path = base_path + "CUST_MSTR/"
+master_child_path = base_path + "master_child/"
+ecom_order_path = base_path + "H_ECOM_ORDER/"
+
+# 1️⃣ Process CUST_MSTR
+cust_df = spark.read.option("header", True).csv(cust_mstr_path + "CUST_MSTR_*.csv") \
+    .withColumn("filename", input_file_name()) \
+    .withColumn("Date", to_date(regexp_extract("filename", r"CUST_MSTR_(\\d{8})\\.csv", 1), "yyyyMMdd")) \
+    .drop("filename")
+
+spark.sql("TRUNCATE TABLE CUST_MSTR")
+cust_df.write.mode("append").saveAsTable("CUST_MSTR")
+
+# 2️⃣ Process master_child_export
+mc_df = spark.read.option("header", True).csv(master_child_path + "master_child_export-*.csv") \
+    .withColumn("filename", input_file_name()) \
+    .withColumn("DateKey", regexp_extract("filename", r"-(\\d{8})\\.csv", 1)) \
+    .withColumn("Date", to_date("DateKey", "yyyyMMdd")) \
+    .drop("filename")
+
+spark.sql("TRUNCATE TABLE master_child")
+mc_df.write.mode("append").saveAsTable("master_child")
+
+# 3️⃣ Process H_ECOM_ORDER
+order_df = spark.read.option("header", True).csv(ecom_order_path + "*.csv")
+
+spark.sql("TRUNCATE TABLE H_ECOM_Orders")
+order_df.write.mode("append").saveAsTable("H_ECOM_Orders")
+
+spark.stop()
